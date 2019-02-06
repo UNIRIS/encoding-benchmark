@@ -121,7 +121,8 @@ func decryptFullJSON(cipher []byte, pvKey *ecdsa.PrivateKey) {
 	decipher, _ := eciesKey.Decrypt(cipher, nil, nil)
 	tx := make(map[string]interface{})
 	json.Unmarshal(decipher, &tx)
-	fmt.Println(tx)
+	b, _ := json.Marshal(tx)
+	fmt.Println(string(b))
 }
 
 func decryptJSONFields(jsonBytes []byte, pvKey *ecdsa.PrivateKey) {
