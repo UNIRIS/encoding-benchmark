@@ -153,9 +153,9 @@ func decryptJSONFields(jsonBytes []byte, pvKey *ecdsa.PrivateKey) {
 	emSig, _ := eciesKey.Decrypt(emSigB, nil, nil)
 
 	fmt.Printf("address: %s\n", clearAddr)
-	fmt.Printf("publicKey: %s\n", hex.EncodeToString(publicKey))
+	fmt.Printf("publicKey: %s\n", publicKey)
 	fmt.Printf("timestamp: %s\n", timestamp)
 	fmt.Printf("type: %s\n", txType)
-	fmt.Printf("signature: %s\n", hex.EncodeToString(sig))
-	fmt.Printf("emitter signature: %s\n", hex.EncodeToString(emSig))
+	fmt.Printf("signature: %s\n", sig)
+	fmt.Printf("emitter signature: %s\n", emSig)
 }
