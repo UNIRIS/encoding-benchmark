@@ -34,9 +34,7 @@ func main() {
 		"publicKey": hex.EncodeToString(pub),
 		"timestamp": time.Now().Unix(),
 		"type":      1,
-		"data": map[string]string{
-			"encrypted_wallet": generateWallet(),
-		},
+		"data":      map[string]string{},
 	}
 	bTx, _ := json.Marshal(tx)
 	r, s, _ := ecdsa.Sign(rand.Reader, key, []byte(bTx))
@@ -56,7 +54,7 @@ func main() {
 	fmt.Printf("\033[1;36m%s\033[0m", "-----------------\n")
 
 	t1Start := time.Now()
-	fullJSONEncrypted := generateEncrypedFullJSON(tx, key)
+	fullJSONEncrypted := generateEncryptedFullJSON(tx, key)
 	fmt.Println(hex.EncodeToString(fullJSONEncrypted))
 	fmt.Printf("\033[1;33m%s\033[0m", fmt.Sprintf("====> Length %d bytes <==== \n", len(fullJSONEncrypted)))
 	t1End := time.Since(t1Start)
@@ -67,7 +65,7 @@ func main() {
 	fmt.Printf("\033[1;36m%s\033[0m", "-----------------\n")
 
 	t2Start := time.Now()
-	fullJSONCompressedEncrypted := generateCompressedEncrypedFullJSON(tx, key)
+	fullJSONCompressedEncrypted := generateCompressedEncryptedFullJSON(tx, key)
 	fmt.Println(hex.EncodeToString(fullJSONCompressedEncrypted))
 	fmt.Printf("\033[1;33m%s\033[0m", fmt.Sprintf("====> Length %d bytes <==== \n", len(fullJSONCompressedEncrypted)))
 	t2End := time.Since(t2Start)
@@ -115,7 +113,6 @@ func main() {
 	t7Start := time.Now()
 	decryptJSONFields(JSONFieldsEncrypted, key)
 	t7End := time.Since(t7Start)
-
 	fmt.Printf("\033[1;33m%s\033[0m", fmt.Sprintf("====> Decryption took %f seconds <==== \n", t7End.Seconds()))
 
 	fmt.Printf("\033[1;36m%s\033[0m", "-------------------\n")
@@ -124,11 +121,15 @@ func main() {
 	t8Start := time.Now()
 	decryptCompressJSONFields(JSONCompressedFieldsEncrypted, key)
 	t8End := time.Since(t8Start)
-
 	fmt.Printf("\033[1;33m%s\033[0m", fmt.Sprintf("====> Decryption took %f seconds <==== \n", t8End.Seconds()))
 }
 
-func generateEncrypedFullJSON(tx map[string]interface{}, key *ecdsa.PrivateKey) []byte {
+func generateEncryptedFullJSON(tx map[string]interface{}, key *ecdsa.PrivateKey) []byte {
+	encWallet := symEncrypt(generateWallet())
+	tx["data"] = map[string]string{
+		"encrypted_wallet": hex.EncodeToString(encWallet),
+	}
+
 	eciesPub := ecies.ImportECDSAPublic(key.Public().(*ecdsa.PublicKey))
 
 	b, _ := json.Marshal(tx)
@@ -136,13 +137,28 @@ func generateEncrypedFullJSON(tx map[string]interface{}, key *ecdsa.PrivateKey) 
 	return cipherJSON
 }
 
-func generateCompressedEncrypedFullJSON(tx map[string]interface{}, key *ecdsa.PrivateKey) []byte {
-	cipher := generateEncrypedFullJSON(tx, key)
-	return compress(cipher)
+func generateCompressedEncryptedFullJSON(tx map[string]interface{}, key *ecdsa.PrivateKey) []byte {
+	w := generateWallet()
+	wComp := compress(w)
+
+	encWallet := symEncrypt(wComp)
+	tx["data"] = map[string]string{
+		"encrypted_wallet": hex.EncodeToString(encWallet),
+	}
+
+	b, _ := json.Marshal(tx)
+
+	comp := compress(b)
+
+	eciesPub := ecies.ImportECDSAPublic(key.Public().(*ecdsa.PublicKey))
+	cipherJSON, _ := ecies.Encrypt(rand.Reader, eciesPub, comp, nil, nil)
+	return cipherJSON
 }
 
 func generateEncryptedJSONFields(tx map[string]interface{}, pvKey *ecdsa.PrivateKey) []byte {
 	eciesPub := ecies.ImportECDSAPublic(pvKey.Public().(*ecdsa.PublicKey))
+
+	encWallet := symEncrypt(generateWallet())
 
 	cipherAddr, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(tx["address"].(string)), nil, nil)
 	cipherPublickey, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(tx["publicKey"].(string)), nil, nil)
@@ -152,11 +168,13 @@ func generateEncryptedJSONFields(tx map[string]interface{}, pvKey *ecdsa.Private
 	cipherEmSig, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(tx["em_signature"].(string)), nil, nil)
 
 	tx = map[string]interface{}{
-		"address":      hex.EncodeToString(cipherAddr),
-		"publicKey":    hex.EncodeToString(cipherPublickey),
-		"timestamp":    hex.EncodeToString(cipherTimestamp),
-		"type":         hex.EncodeToString(cipherType),
-		"data":         tx["data"],
+		"address":   hex.EncodeToString(cipherAddr),
+		"publicKey": hex.EncodeToString(cipherPublickey),
+		"timestamp": hex.EncodeToString(cipherTimestamp),
+		"type":      hex.EncodeToString(cipherType),
+		"data": map[string]string{
+			"encrypted_wallet": hex.EncodeToString(encWallet),
+		},
 		"signature":    hex.EncodeToString(cipherSig),
 		"em_signature": hex.EncodeToString(cipherEmSig),
 	}
@@ -168,28 +186,38 @@ func generateEncryptedJSONFields(tx map[string]interface{}, pvKey *ecdsa.Private
 func generateCompressedEncryptedJSONFields(tx map[string]interface{}, pvKey *ecdsa.PrivateKey) []byte {
 	eciesPub := ecies.ImportECDSAPublic(pvKey.Public().(*ecdsa.PublicKey))
 
-	cipherAddr, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(tx["address"].(string)), nil, nil)
-	cipherPublickey, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(tx["publicKey"].(string)), nil, nil)
-	cipherTimestamp, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(strconv.Itoa(int(tx["timestamp"].(int64)))), nil, nil)
-	cipherType, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(strconv.Itoa(tx["type"].(int))), nil, nil)
-	cipherSig, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(tx["signature"].(string)), nil, nil)
-	cipherEmSig, _ := ecies.Encrypt(rand.Reader, eciesPub, []byte(tx["em_signature"].(string)), nil, nil)
+	compAddr := compress([]byte(tx["address"].(string)))
+	compPublickey := compress([]byte(tx["publicKey"].(string)))
+	compTimestamp := compress([]byte(strconv.Itoa(int(tx["timestamp"].(int64)))))
+	compType := compress([]byte(strconv.Itoa(tx["type"].(int))))
+	compSig := compress([]byte(tx["signature"].(string)))
+	compEmSig := compress([]byte(tx["em_signature"].(string)))
 
-	txData := tx["data"].(map[string]string)
+	w := generateWallet()
+	wComp := compress(w)
 
-	txCompress := map[string]interface{}{
-		"address":   hex.EncodeToString(compress(cipherAddr)),
-		"publicKey": hex.EncodeToString(compress(cipherPublickey)),
-		"timestamp": hex.EncodeToString(compress(cipherTimestamp)),
-		"type":      hex.EncodeToString(compress(cipherType)),
+	encWallet := symEncrypt(wComp)
+
+	cipherAddr, _ := ecies.Encrypt(rand.Reader, eciesPub, compAddr, nil, nil)
+	cipherPublickey, _ := ecies.Encrypt(rand.Reader, eciesPub, compPublickey, nil, nil)
+	cipherTimestamp, _ := ecies.Encrypt(rand.Reader, eciesPub, compTimestamp, nil, nil)
+	cipherType, _ := ecies.Encrypt(rand.Reader, eciesPub, compType, nil, nil)
+	cipherSig, _ := ecies.Encrypt(rand.Reader, eciesPub, compSig, nil, nil)
+	cipherEmSig, _ := ecies.Encrypt(rand.Reader, eciesPub, compEmSig, nil, nil)
+
+	tx = map[string]interface{}{
+		"address":   hex.EncodeToString(cipherAddr),
+		"publicKey": hex.EncodeToString(cipherPublickey),
+		"timestamp": hex.EncodeToString(cipherTimestamp),
+		"type":      hex.EncodeToString(cipherType),
 		"data": map[string]string{
-			"encrypted_wallet": hex.EncodeToString(compress([]byte(txData["encrypted_wallet"]))),
+			"encrypted_wallet": hex.EncodeToString(encWallet),
 		},
-		"signature":    hex.EncodeToString(compress(cipherSig)),
-		"em_signature": hex.EncodeToString(compress(cipherEmSig)),
+		"signature":    hex.EncodeToString(cipherSig),
+		"em_signature": hex.EncodeToString(cipherEmSig),
 	}
 
-	bTx, _ := json.Marshal(txCompress)
+	bTx, _ := json.Marshal(tx)
 	return bTx
 }
 
@@ -202,8 +230,16 @@ func decryptFullJSON(cipher []byte, pvKey *ecdsa.PrivateKey) {
 	fmt.Println(string(b))
 }
 
-func decryptCompressedFullJSON(comm []byte, pvKey *ecdsa.PrivateKey) {
-	decryptFullJSON(decompress(comm), pvKey)
+func decryptCompressedFullJSON(cipher []byte, pvKey *ecdsa.PrivateKey) {
+	eciesKey := ecies.ImportECDSA(pvKey)
+	decipher, _ := eciesKey.Decrypt(cipher, nil, nil)
+
+	txBytes := decompress(decipher)
+	tx := make(map[string]interface{})
+	json.Unmarshal(txBytes, &tx)
+
+	b, _ := json.Marshal(tx)
+	fmt.Println(string(b))
 }
 
 func decryptJSONFields(jsonBytes []byte, pvKey *ecdsa.PrivateKey) {
@@ -262,22 +298,22 @@ func decryptCompressJSONFields(jsonBytes []byte, pvKey *ecdsa.PrivateKey) {
 	sigB, _ := hex.DecodeString(cipherSignature)
 	emSigB, _ := hex.DecodeString(cipherEmSignature)
 
-	clearAddr, _ := eciesKey.Decrypt(decompress(addrB), nil, nil)
-	publicKey, _ := eciesKey.Decrypt(decompress(pubkB), nil, nil)
-	timestamp, _ := eciesKey.Decrypt(decompress(timestampB), nil, nil)
-	txType, _ := eciesKey.Decrypt(decompress(typeB), nil, nil)
-	sig, _ := eciesKey.Decrypt(decompress(sigB), nil, nil)
-	emSig, _ := eciesKey.Decrypt(decompress(emSigB), nil, nil)
+	compClearAddr, _ := eciesKey.Decrypt(addrB, nil, nil)
+	compPublicKey, _ := eciesKey.Decrypt(pubkB, nil, nil)
+	compTimestamp, _ := eciesKey.Decrypt(timestampB, nil, nil)
+	compTxType, _ := eciesKey.Decrypt(typeB, nil, nil)
+	compSig, _ := eciesKey.Decrypt(sigB, nil, nil)
+	compEmSig, _ := eciesKey.Decrypt(emSigB, nil, nil)
 
-	fmt.Printf("address: %s\n", clearAddr)
-	fmt.Printf("publicKey: %s\n", publicKey)
-	fmt.Printf("timestamp: %s\n", timestamp)
-	fmt.Printf("type: %s\n", txType)
-	fmt.Printf("signature: %s\n", sig)
-	fmt.Printf("emitter signature: %s\n", emSig)
+	fmt.Printf("address: %s\n", decompress(compClearAddr))
+	fmt.Printf("publicKey: %s\n", decompress(compPublicKey))
+	fmt.Printf("timestamp: %s\n", decompress(compTimestamp))
+	fmt.Printf("type: %s\n", decompress(compTxType))
+	fmt.Printf("signature: %s\n", decompress(compSig))
+	fmt.Printf("emitter signature: %s\n", decompress(compEmSig))
 }
 
-func generateWallet() string {
+func generateWallet() []byte {
 	keyUniris, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	pvUniris, _ := x509.MarshalECPrivateKey(keyUniris)
 
@@ -303,21 +339,7 @@ func generateWallet() string {
 
 	walletJSON, _ := json.Marshal(w)
 
-	hash := sha256.New
-
-	//Generate salt
-	salt := make([]byte, hash().Size())
-	io.ReadFull(rand.Reader, salt)
-
-	//Generate a key from the salt and the secret
-	derivedKey := pbkdf2.Key([]byte("my super passphrase"), salt, 100000, 16, hash)
-	c, _ := aes.NewCipher(derivedKey)
-	gcm, _ := cipher.NewGCM(c)
-	nonce := make([]byte, gcm.NonceSize())
-	io.ReadFull(rand.Reader, nonce)
-	cipher := gcm.Seal(nonce, nonce, walletJSON, nil)
-
-	return hex.EncodeToString(cipher)
+	return walletJSON
 }
 
 func compress(data []byte) []byte {
@@ -334,4 +356,21 @@ func decompress(data []byte) []byte {
 	r, _ := gzip.NewReader(buf)
 	s, _ := ioutil.ReadAll(r)
 	return s
+}
+
+func symEncrypt(data []byte) []byte {
+	hash := sha256.New
+
+	//Generate salt
+	salt := make([]byte, hash().Size())
+	io.ReadFull(rand.Reader, salt)
+
+	//Generate a key from the salt and the secret
+	derivedKey := pbkdf2.Key([]byte("my super passphrase"), salt, 100000, 16, hash)
+	c, _ := aes.NewCipher(derivedKey)
+	gcm, _ := cipher.NewGCM(c)
+	nonce := make([]byte, gcm.NonceSize())
+	io.ReadFull(rand.Reader, nonce)
+	cipher := gcm.Seal(nonce, nonce, data, nil)
+	return cipher
 }
